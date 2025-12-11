@@ -22,7 +22,10 @@ else:
     MIDDLE_LAYER_DIRECTION = 0 #0=outward 1=inward
 
 # if using cura subtact like 5, you might need trial and error to make it work, if it doesnt look right, try again
-PLATE_X,PLATE_Y = 110-(52.43/2),110#(47.38/2),110#81.285,110#110,110                            # moves your gcode away from the origin into the center of the bed (usually bed size / 2)                                       
+if LAYER_TYPE==0:
+    PLATE_X,PLATE_Y = 110-(52.43/2),110                            # moves your gcode away from the origin into the center of the bed (usually bed size / 2)                                       
+else:
+    PLATE_X,PLATE_Y = 110,110
 X_MOVE,Y_MOVE = 0,0                                # moves the modle away from the center of the bed if wanted
 FIRST_LAYER_HEIGHT = 0.12                            # moves all the gcode up to this height. Use also for stacking
 
@@ -36,16 +39,19 @@ def move(x,y,c,n):
 
 def transform(x,y,z,e):
     x,y = move(x,y,-1,1)
-    if x<=0:
-        x=0.0000000000000000001
-    if z<=0:
-        z=0.0000000000000000001
-    nz=z
-    ox=x
-    x = np.sqrt(x**2+z**2)*np.cos(np.radians(np.degrees(np.arctan(z/x))-CONE_ANGLE))
-    z = np.sqrt(ox**2+z**2)*np.sin(np.radians(np.degrees(np.arctan(z/ox))-CONE_ANGLE))+5.7#+12+6.1# + 6.0
-    x,y=-y,x
-    y=-y
+    if LAYER_TYPE==0:
+        if x<=0:
+            x=0.0000000000000000001
+        if z<=0:
+            z=0.0000000000000000001
+        nz=z
+        ox=x
+        x = np.sqrt(x**2+z**2)*np.cos(np.radians(np.degrees(np.arctan(z/x))-CONE_ANGLE))
+        z = np.sqrt(ox**2+z**2)*np.sin(np.radians(np.degrees(np.arctan(z/ox))-CONE_ANGLE))+5.7#+12+6.1# + 6.0
+        x,y=-y,x
+        y=-y
+    else:
+        z = z - dist_center_transform(x,y,z)
     x,y = move(x,y,1,2)
     #if nz<=z:
     #    print(nz)
@@ -59,6 +65,69 @@ def transform(x,y,z,e):
         row_new = "G0"+" X"+str(round(x+X_MOVE,3))+ " Y"+str(round(y+Y_MOVE,3))+" Z"+str(round(z+FIRST_LAYER_HEIGHT,3))+"\n"
     return row_new
 
+def dist_center_transform(x,y,z):
+    dist = np.sqrt(x**2 + z**2)
+    val= (dist%LAYER_PART_RADIUS)
+    num = (np.floor(dist/LAYER_PART_RADIUS)%2)*LAYER_PART_RADIUS
+    if x==0 and y==0:
+        return 0
+    if LAYER_TYPE==0:
+        if MIDDLE_LAYER_DIRECTION==0:
+            c=LAYER_PART_RADIUS
+        else:
+            c=0
+        if num==c:
+            val = LAYER_PART_RADIUS-val
+        return val*np.tan(np.radians(CONE_ANGLE)) + (-9.1) + 0.001*dist 
+    elif LAYER_TYPE==1:
+        if num==LAYER_PART_RADIUS:
+            val = LAYER_PART_RADIUS-val
+        return np.sqrt(LAYER_PART_RADIUS**2 - val**2)
+    else:
+        raise ValueError(f'{LAYER_TYPE} is not a admissible type for the transformation')
+
+def change_e(data,i,x,y,z,e):
+    i += 1
+    pattern_X = r'X[-0-9]*[.]?[0-9]*'
+    pattern_Y = r'Y[-0-9]*[.]?[0-9]*'
+    pattern_Z = r'Z[-0-9]*[.]?[0-9]*'
+    pattern_E = r'E[-0-9]*[.]?[0-9]*'
+    pattern_G = r'\AG[1] '
+    pattern_G0 = r'\AG[0] '
+
+    g_match = re.search(pattern_G, data[i+1])
+    g0_mathch = re.search(pattern_G0, data[i+1])
+    x2, y2 = 0, 0
+    z2 = 0
+    e2 = 0
+    #print(data[i+1],i)
+    if g_match is None and g0_mathch is None:
+        #print(i)
+        return 0
+    else:
+        x_match = re.search(pattern_X, data[i+1])
+        y_match = re.search(pattern_Y, data[i+1])
+        #z_match = re.search(pattern_Z, data[i+1])
+        e_match = re.search(pattern_E, data[i+1])
+        #print(e_match)
+        if x_match is None or y_match is None or e_match is None:
+            #print(i)
+            return 0
+        else:
+            #if z_match is not None:
+            #    z2 = float(z_match.group(0).replace('Z', ''))
+            x2 = float(x_match.group(0).replace('X', ''))
+            y2 = float(y_match.group(0).replace('Y', ''))
+            #e2 = float(e_match.group(0).replace('E', ''))
+
+            distx = x-x2
+            disty = y-y2
+            dist = math.sqrt(distx**2+disty**2)
+            
+            distz=(math.tan(math.radians(CONE_ANGLE)) * math.sqrt(x**2+y**2))-(math.tan(math.radians(CONE_ANGLE)) * math.sqrt(x2**2+y2**2))
+            change = math.sqrt(dist**2+distz**2) / dist
+            #print(e)
+            return round(change*e*1.2,5)
 
 def backtransform_data(data):
     new_data = []
@@ -104,7 +173,8 @@ def backtransform_data(data):
                     e_new = float(e_match.group(0).replace('E', ''))
                 
                 # adds all updated rows to the list of all rows
-                #e_new = change_e(data,i,x_new,y_new,z_layer,e_new)
+                if LAYER_TYPE!=0:
+                    e_new = change_e(data,i,x_new,y_new,z_layer,e_new)
                 #print(e_new)
                 new_data.append(transform(x_new,y_new,z_layer,e_new))
     return new_data
