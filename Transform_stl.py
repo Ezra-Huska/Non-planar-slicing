@@ -53,9 +53,43 @@ def refinement_triangulation(triangle_array):
 
 def transform(points):
     # Transfoms the points on the triagle bassed on their position to the center
-    transformation_method = (lambda x, y, z: np.array([(np.sqrt(x**2+z**2)*np.cos(np.radians(np.degrees(np.arctan(z/x))+CONE_ANGLE))), y, (np.sqrt(x**2+z**2)*np.sin(np.radians(np.degrees(np.arctan(z/x))+CONE_ANGLE)))]))
-    points_transformed = list(map(transformation_method, points[:, 0], points[:, 1], points[:, 2]))# makes it work in list form
-    return np.array(points_transformed)
+    if LAYER_TYPE==0:
+        transformation_method = (lambda x, y, z: np.array([(np.sqrt(x**2+z**2)*np.cos(np.radians(np.degrees(np.arctan(z/x))+CONE_ANGLE))), y, (np.sqrt(x**2+z**2)*np.sin(np.radians(np.degrees(np.arctan(z/x))+CONE_ANGLE)))]))
+        points_transformed = list(map(transformation_method, points[:, 0], points[:, 1], points[:, 2]))# makes it work in list form
+        return np.array(points_transformed)
+    else:
+        transformation_method = (lambda x, y, z: np.array([x, y, z + dist_center_transform(x,y,z)]))
+        points_transformed = list(map(transformation_method, points[:, 0], points[:, 1], points[:, 2]))# makes it work in list form
+        return np.array(points_transformed)
+def dist_center_transform(x,y,z):
+    x,y=x-change,y-change
+    dist = np.sqrt(x**2 + y**2)
+    val= (dist%LAYER_PART_RADIUS)
+    num = (np.floor(dist/LAYER_PART_RADIUS)%2)*LAYER_PART_RADIUS
+    if LAYER_TYPE==0:
+        if MIDDLE_LAYER_DIRECTION==0:
+            c=LAYER_PART_RADIUS
+        else:
+            c=0
+        if num==c:
+            val = LAYER_PART_RADIUS-val
+        z_new = round(val*np.tan(np.radians(CONE_ANGLE)),1)
+        if z+z_new<0.5 and z+z_new>0.0:
+            return 0
+        return z_new
+    elif LAYER_TYPE==1:
+        if MIDDLE_LAYER_DIRECTION==1:
+            c=LAYER_PART_RADIUS
+        else:
+            c=0
+        if num==c:
+            val = LAYER_PART_RADIUS-val
+        if MIDDLE_LAYER_DIRECTION==1:
+            return np.sqrt(LAYER_PART_RADIUS**2 - val**2)
+        return np.sqrt(LAYER_PART_RADIUS**2 + val**2)
+    else:
+        raise ValueError(f'{LAYER_TYPE} is not a admissible type for the transformation')
+
 
 #round(val*np.tan(np.radians(CONE_ANGLE)),1)
 def main(path):
